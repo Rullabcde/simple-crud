@@ -20,7 +20,8 @@ pipeline {
   }
 
   environment {
-    REPO_NAME = "devsecops"
+    REPO_NAME = "simple-crud"
+    MANIFEST_REPO = "manifests"
     REPO_USER = "Rullabcde"
     IMAGE_NAME = "reg.rullabcd.my.id/library/app"
     IMAGE_TAG = "${env.BUILD_NUMBER}"
@@ -52,7 +53,7 @@ pipeline {
             sonar-scanner \
               -Dsonar.projectKey=App \
               -Dsonar.sources=. \
-              -Dsonar.exclusions=**/node_modules/**,**/test/** \
+              -Dsonar.exclusions=**/node_modules/**,**/test/**,**/app/globals.css \
               -Dsonar.host.url=$SONAR_HOST \
               -Dsonar.token=$SONAR_TOKEN
           '''
@@ -63,8 +64,8 @@ pipeline {
     stage('Build Docker Image') {
       steps {
         sh '''
-          docker build --target runner -t ${IMAGE_NAME}:${IMAGE_TAG} -f applications/Dockerfile applications
-          docker build --target migrator -t ${IMAGE_NAME}-migrator:${IMAGE_TAG} -f applications/Dockerfile applications
+          docker build --target runner -t ${IMAGE_NAME}:${IMAGE_TAG} .
+          docker build --target migrator -t ${IMAGE_NAME}-migrator:${IMAGE_TAG} .
         '''
       }
     }
@@ -88,12 +89,10 @@ pipeline {
           {
             sh '''
               echo $HARBOR_PASS | docker login reg.rullabcd.my.id -u $HARBOR_USER --password-stdin
+              docker push ${IMAGE_NAME}:${IMAGE_TAG}
+              docker push ${IMAGE_NAME}-migrator:${IMAGE_TAG}
             '''
         }
-        sh '''
-          docker push ${IMAGE_NAME}:${IMAGE_TAG}
-          docker push ${IMAGE_NAME}-migrator:${IMAGE_TAG}
-        '''
       }
     }
 
@@ -103,23 +102,23 @@ pipeline {
           string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')
         ]) {
           sh '''
+            git clone https://${GITHUB_TOKEN}@github.com/${REPO_USER}/${MANIFEST_REPO}.git
+            cd ${MANIFEST_REPO}
+            
             git config user.email "choirulrasyid09@gmail.com"
             git config user.name "Rullabcde"
-            git checkout main
             
-            sed -i "s|__IMAGE_TAG__|${IMAGE_TAG}|g" manifests/deployment.yml
-            sed -i "s|__IMAGE_TAG__|${IMAGE_TAG}|g" manifests/job.yml
+            kustomize edit set image \
+              ${IMAGE_NAME}:${IMAGE_TAG} \
+              ${IMAGE_NAME}-migrator:${IMAGE_TAG}
 
-            git add manifests/deployment.yml
-            git add manifests/job.yml
-            git commit -m "Update deployment image tag to ${IMAGE_TAG}"
-
-            git push https://${GITHUB_TOKEN}@github.com/${REPO_USER}/${REPO_NAME}.git HEAD:main
+            git add kustomization.yml
+            git commit -m "Update image tag to ${IMAGE_TAG}"
+            git push origin main
           '''
         }
       }
     }
-
   }
 
   post {
@@ -129,11 +128,9 @@ pipeline {
     }
     success {
       echo "Build and push of ${IMAGE_NAME}:${IMAGE_TAG} succeeded"
-      // slackSend(channel: '#jenkins', color: 'good', message: "Build and push of ${IMAGE_NAME}:${IMAGE_TAG} succeeded")
     }
     failure {
       echo "Build and push of ${IMAGE_NAME}:${IMAGE_TAG} failed"
-      // slackSend(channel: '#jenkins', color: 'danger', message: "Build and push of ${IMAGE_NAME}:${IMAGE_TAG} failed")
     }
   }
 }
