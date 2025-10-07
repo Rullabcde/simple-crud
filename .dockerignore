@@ -1,0 +1,16 @@
+node_modules
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+.next
+.git
+.gitignore
+Dockerfile
+.dockerignore
+.env
+.env.local
+*.swp
+*.swo
+.DS_Store
+.idea/
+.vscode/
