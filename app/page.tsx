@@ -272,11 +272,11 @@ export default function CRUDApp() {
                       disabled={loading}
                       className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2.5"
                     >
-                      {loading
-                        ? "Saving..."
-                        : editingId
-                        ? "Update Product"
-                        : "Add Product"}
+                      {(() => {
+                        if (loading) return "Saving...";
+                        if (editingId) return "Update Product";
+                        return "Add Product";
+                      })()}
                     </Button>
                     {editingId && (
                       <Button
