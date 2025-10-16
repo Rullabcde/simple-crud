@@ -1,9 +1,5 @@
-pipeline {
-  agent {
-    node {
-      label 'jenkins-agent'
-    }
-  }
+pipeline{
+  agent any
 
   options {
     disableConcurrentBuilds()
@@ -20,10 +16,7 @@ pipeline {
   }
 
   environment {
-    REPO_NAME = "simple-crud"
-    MANIFEST_REPO = "manifests"
-    REPO_USER = "Rullabcde"
-    IMAGE_NAME = "reg.rullabcd.my.id/library/app"
+    IMAGE_NAME = 'rullabcd/app'
     IMAGE_TAG = "${env.BUILD_NUMBER}"
   }
 
@@ -34,103 +27,87 @@ pipeline {
       }
     }
 
-    stage('Code Scan') {
-      agent {
-        docker {
-          image 'sonarsource/sonar-scanner-cli:latest'
-          reuseNode true
-        }
-      }
-      steps {
-        withCredentials([
-          string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN'),
-          string(credentialsId: 'sonar-host', variable: 'SONAR_HOST')
-        ]) {
-          sh '''
-            export SONAR_USER_HOME=$WORKSPACE/.sonar
-            mkdir -p $SONAR_USER_HOME
-
-            sonar-scanner \
-              -Dsonar.projectKey=App \
-              -Dsonar.sources=. \
-              -Dsonar.exclusions=**/node_modules/**,**/test/**,**/app/globals.css \
-              -Dsonar.host.url=$SONAR_HOST \
-              -Dsonar.token=$SONAR_TOKEN
-          '''
-        }
-      }
-    }
-
     stage('Build Docker Image') {
       steps {
         sh '''
           docker build --target runner -t ${IMAGE_NAME}:${IMAGE_TAG} .
+          docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
           docker build --target migrator -t ${IMAGE_NAME}-migrator:${IMAGE_TAG} .
+          docker tag ${IMAGE_NAME}-migrator:${IMAGE_TAG} ${IMAGE_NAME}-migrator:latest
+
         '''
       }
     }
 
-    stage('Vulnerability Scan') {
-      steps {
-        sh '''
-          trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress ${IMAGE_NAME}:${IMAGE_TAG}
-          trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress ${IMAGE_NAME}-migrator:${IMAGE_TAG}
-        '''
-      }
-    }
-
-    stage('Push to Registry') {
+    stage('Push Docker Image') { 
       steps {
         withCredentials([
           usernamePassword(
-            credentialsId: 'harbor-credentials', 
-            usernameVariable: 'HARBOR_USER', 
-            passwordVariable: 'HARBOR_PASS')]) 
-          {
-            sh '''
-              echo $HARBOR_PASS | docker login reg.rullabcd.my.id -u $HARBOR_USER --password-stdin
-              docker push ${IMAGE_NAME}:${IMAGE_TAG}
-              docker push ${IMAGE_NAME}-migrator:${IMAGE_TAG}
-            '''
-        }
+            credentialsId: 'docker-credentials', 
+            usernameVariable: 'DOCKER_USERNAME', 
+            passwordVariable: 'DOCKER_PASSWORD')]) {
+              sh '''
+                echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+                docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                docker push ${IMAGE_NAME}:latest
+                docker push ${IMAGE_NAME}-migrator:${IMAGE_TAG}
+                docker push ${IMAGE_NAME}-migrator:latest
+              '''
+            }
       }
     }
 
-    stage('Update Manifests') {
+    stage('Deploy to VPS') {
+      when { branch 'stg' }
       steps {
         withCredentials([
-          string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')
-        ]) {
-          sh '''
-            git clone https://${GITHUB_TOKEN}@github.com/${REPO_USER}/${MANIFEST_REPO}.git
-            cd ${MANIFEST_REPO}
-            
-            git config user.email "choirulrasyid09@gmail.com"
-            git config user.name "Rullabcde"
-            
-            kustomize edit set image \
-              ${IMAGE_NAME}:${IMAGE_TAG} \
-              ${IMAGE_NAME}-migrator:${IMAGE_TAG}
+          string(credentialsId: 'ip-vps', variable: 'VPS_IP'),
+          string(credentialsId: 'port-vps', variable: 'VPS_PORT'),
+          sshUserPrivateKey(
+            credentialsId: 'ssh-vps', 
+            keyFileVariable: 'SSH_KEY', 
+            usernameVariable: 'SSH_USER')]) {
+              sh '''
+                ssh -o StrictHostKeyChecking=no -i $SSH_KEY_PATH $SSH_USER@$VPS_IP -p $VPS_PORT << EOF
+                  cd ~/app
+                  ./deploy-stg.sh
+                EOF
+              '''
+            }
+      }
+    }
 
-            git add kustomization.yml
-            git commit -m "Update image tag to ${IMAGE_TAG}"
-            git push origin main
-          '''
-        }
+    stage('Deploy to VPS') {
+      when { branch 'prod' }
+      steps {
+        withCredentials([
+          string(credentialsId: 'ip-vps', variable: 'VPS_IP'),
+          string(credentialsId: 'port-vps', variable: 'VPS_PORT'),
+          sshUserPrivateKey(
+            credentialsId: 'ssh-vps', 
+            keyFileVariable: 'SSH_KEY', 
+            usernameVariable: 'SSH_USER')]) {
+              sh '''
+                ssh -o StrictHostKeyChecking=no -i $SSH_KEY_PATH $SSH_USER@$VPS_IP -p $VPS_PORT << EOF
+                  cd ~/app
+                  ./deploy-prod.sh
+                EOF
+              '''
+            }
       }
     }
   }
 
   post {
-    always {
-      cleanWs()
-      sh 'docker logout reg.rullabcd.my.id || true'
-    }
-    success {
-      echo "Build and push of ${IMAGE_NAME}:${IMAGE_TAG} succeeded"
-    }
-    failure {
-      echo "Build and push of ${IMAGE_NAME}:${IMAGE_TAG} failed"
+      always {
+        cleanWs()
+        sh 'docker logout || true'
+      }
+      success {
+        echo 'Build and deployment succeeded!'
+      }
+      failure {
+        echo 'Build or deployment failed.'
     }
   }
 }
