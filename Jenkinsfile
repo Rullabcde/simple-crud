@@ -68,7 +68,7 @@ pipeline{
             keyFileVariable: 'SSH_KEY', 
             usernameVariable: 'SSH_USER')]) {
               sh '''
-                ssh -o StrictHostKeyChecking=no -i $SSH_KEY_PATH $SSH_USER@$VPS_IP -p $VPS_PORT << EOF
+                ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$VPS_IP -p $VPS_PORT << 'EOF'
                   cd ~/app
                   ./deploy-stg.sh
                 EOF
@@ -88,7 +88,7 @@ pipeline{
             keyFileVariable: 'SSH_KEY', 
             usernameVariable: 'SSH_USER')]) {
               sh '''
-                ssh -o StrictHostKeyChecking=no -i $SSH_KEY_PATH $SSH_USER@$VPS_IP -p $VPS_PORT << EOF
+                ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$VPS_IP -p $VPS_PORT << 'EOF'
                   cd ~/app
                   ./deploy-prod.sh
                 EOF
