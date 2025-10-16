@@ -57,7 +57,7 @@ pipeline{
       }
     }
 
-    stage('Deploy to VPS') {
+    stage('Deploy to STG') {
       when { branch 'stg' }
       steps {
         withCredentials([
@@ -77,7 +77,7 @@ pipeline{
       }
     }
 
-    stage('Deploy to VPS') {
+    stage('Deploy to PROD') {
       when { branch 'prod' }
       steps {
         withCredentials([
