@@ -17,7 +17,6 @@ pipeline{
 
   environment {
     IMAGE_NAME = 'rullabcd/app'
-    IMAGE_TAG = "${env.BUILD_NUMBER}"
   }
 
   stages {
@@ -27,13 +26,23 @@ pipeline{
       }
     }
 
+    stage('Tag Image') {
+      steps {
+        script {
+          def lastSuccessfulBuild = currentBuild.previousSuccessfulBuild?.number ?: 0
+          def version = lastSuccess + 1
+          env.IMAGE_TAG = "v1.0.${version}"
+        }
+      }
+    }
+
     stage('Build Docker Image') {
       steps {
         sh '''
-          docker build --target runner -t ${IMAGE_NAME}:${IMAGE_TAG} .
-          docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
-          docker build --target migrator -t ${IMAGE_NAME}-migrator:${IMAGE_TAG} .
-          docker tag ${IMAGE_NAME}-migrator:${IMAGE_TAG} ${IMAGE_NAME}-migrator:latest
+          docker build --target runner -t ${IMAGE_NAME}:${env.IMAGE_TAG} .
+          docker tag ${IMAGE_NAME}:${env.IMAGE_TAG} ${IMAGE_NAME}:latest
+          docker build --target migrator -t ${IMAGE_NAME}-migrator:${env.IMAGE_TAG} .
+          docker tag ${IMAGE_NAME}-migrator:${env.IMAGE_TAG} ${IMAGE_NAME}-migrator:latest
 
         '''
       }
@@ -48,9 +57,9 @@ pipeline{
             passwordVariable: 'DOCKER_PASSWORD')]) {
               sh '''
                 echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
-                docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                docker push ${IMAGE_NAME}:${env.IMAGE_TAG}
                 docker push ${IMAGE_NAME}:latest
-                docker push ${IMAGE_NAME}-migrator:${IMAGE_TAG}
+                docker push ${IMAGE_NAME}-migrator:${env.IMAGE_TAG}
                 docker push ${IMAGE_NAME}-migrator:latest
               '''
             }
@@ -68,10 +77,10 @@ pipeline{
             keyFileVariable: 'SSH_KEY', 
             usernameVariable: 'SSH_USER')]) {
               sh '''
-                ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$VPS_IP -p $VPS_PORT << 'EOF'
+                ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$VPS_IP -p $VPS_PORT "
                   cd ~/app
                   ./deploy-stg.sh
-                EOF
+                "
               '''
             }
       }
@@ -88,10 +97,10 @@ pipeline{
             keyFileVariable: 'SSH_KEY', 
             usernameVariable: 'SSH_USER')]) {
               sh '''
-                ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$VPS_IP -p $VPS_PORT << \\EOF
+                ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_USER@$VPS_IP -p $VPS_PORT "
                   cd ~/app
                   ./deploy-prod.sh
-                EOF
+                "
               '''
             }
       }
